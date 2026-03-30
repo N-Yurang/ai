@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import json
 
 # 1. .env 파일을 읽어옵니다. (파일이 바로 옆에 있어서 이 한 줄이면 충분해요)
 load_dotenv()
@@ -45,6 +46,10 @@ class ChatRequest(BaseModel):
 async def get_recommendation(request: ChatRequest):
     try:
         print(f"📩 [DEBUG] 요청 발생: {request.user_message}")
+
+        # 시스템 프롬프트
+        system_instruction = """
+        """
         
         # Gemini 모델 설정
         model = genai.GenerativeModel('gemini-flash-latest')
@@ -54,7 +59,7 @@ async def get_recommendation(request: ChatRequest):
         
         # 💡 response.text 사용 전 안전하게 체크
         if response and response.text:
-            ai_reply = response.text
+            ai_reply = json.loads(response.text)
             print(f"✅ [DEBUG] AI 응답 성공")
             return {
                 "status": "success",
