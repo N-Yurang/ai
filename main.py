@@ -78,7 +78,7 @@ async def get_recommendation(request: ChatRequest):
         
         # Gemini 모델 설정
         response1 = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.0-flash",
             contents=request.user_message,
             config = {"system_instruction": system_instruction_1, "response_mime_type": "application/json"}
         )
