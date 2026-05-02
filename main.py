@@ -1,18 +1,22 @@
 import os
 import json
+import random
+from typing import List, Dict, Optional
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from google import genai
 from google.genai import types
-from pydantic import BaseModel
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from geopy.distance import geodesic
 
-# 1. .env 파일을 읽어옵니다. (파일이 바로 옆에 있어서 이 한 줄이면 충분해요)
 load_dotenv()
 
-# 2. 키가 잘 들어왔는지 터미널에 바로 출력해봅니다. (보안상 앞 4자리만 출력)
+# ==========================================
+# 1. 초기 설정 및 클라이언트 셋팅
+# ==========================================
 raw_key = os.getenv("GOOGLE_API_KEY")
 
 if raw_key:
@@ -21,11 +25,9 @@ if raw_key:
 else:
     print("❌ [DEBUG] .env 파일에서 GOOGLE_API_KEY를 읽지 못했습니다.")
     client = None
-    # .env 파일 안의 글자가 GOOGLE_API_KEY=... 가 맞는지 다시 확인해주세요!
 
-app = FastAPI()
+app = FastAPI(title="TRIPLY AI Integrated Server")
 
-# CORS 설정 (이것도 팀원들이랑 작업하면서 꼬였을 수 있으니 다시 체크!)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -34,130 +36,146 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 1. 프론트엔드에서 보내는 데이터 형식을 정의합니다.
+# ==========================================
+# 2. Pydantic 모델 (데이터 규격 정의)
+# ==========================================
+
+# 기존 추천용
 class ChatRequest(BaseModel):
     user_message: str
 
-@app.get("/")
-def read_root():
-    return {"status": "success", "message": "🚀 TRIPLY AI 서버가 작동 중입니다!"}
+# 인텐트 추출용
+class ChatMessage(BaseModel):
+    role: str
+    content: str
 
-# ... 이후 하단 코드 (api/recommend 등) ...
+class IntentRequest(BaseModel):
+    chat_history: List[ChatMessage]
 
-#테스트용 임시 DB
-places_db = [
-    {"name": "제주 협재 해수욕장", "tags": "부모님과 바다뷰 조용한"},
-    {"name": "부산 광안리", "tags": "커플 바다뷰 야경명소"},
-    {"name": "강릉 정동진", "tags": "아이와함께 바다뷰 웅장한"},
-    {"name": "속초 중앙시장", "tags": "가족 걷기좋은 사진맛집"},
-    {"name": "서울 남산타워", "tags": "커플 야경명소 감성적인"}
-]
+# GA 경로 최적화용
+class Place(BaseModel):
+    place_id: int
+    name: str
+    latitude: float
+    longitude: float
+    trend_score: float
+    festival_score: float
 
-# 2. 드디어 진짜 'AI 추천' 문을 만듭니다!
-@app.post("/api/recommend")
-async def get_recommendation(request: ChatRequest):
+class Festival(BaseModel):
+    festival_id: int
+    latitude: float
+    longitude: float
+
+class GARequest(BaseModel):
+    places: List[Place]
+    festivals: List[Festival]
+    weight_media: float
+    weight_festival: float
+
+# ==========================================
+# 3. 인텐트 및 가중치 분석 (/ai/intent)
+# ==========================================
+@app.post("/ai/intent")
+async def extract_intent(req: IntentRequest):
+    """
+    Gemini Flash를 통해 대화 맥락에서 지역, 가중치, 키워드를 추출합니다.
+    """
     if not client:
-        return {"status": "error", "message": "API 키 설정이 되어있지 않습니다."}
+        raise HTTPException(status_code=500, detail="API 키 설정이 필요합니다.")
 
+    conversation = "\n".join([f"{msg.role}: {msg.content}" for msg in req.chat_history])
+    
+    system_instruction = """
+    너는 여행 큐레이터 'TRIPLY'의 두뇌야. 대화를 분석해 아래 JSON 형식으로만 답해.
+    1. region: 언급된 지역 (없으면 null)
+    2. weight_media: 인스타 핫플, 예쁜 곳 등을 원하면 0.9, 관심 없으면 0.1 (0.0~1.0 사이)
+    3. weight_festival: 축제/행사 참여를 원하면 0.9, 조용한 힐링을 원하면 0.05 (0.0~1.0 사이)
+    4. keyword_filter: ["바다", "해변"] 등 필터링할 키워드 리스트
+    응답은 순수 JSON이어야 함.
+    """
+    
     try:
-        print(f"📩 [DEBUG] 요청 발생: {request.user_message}")
-
-        # 시스템 프롬프트
-        # 키워드 뽑아내기
-        system_instruction_1 = """ ...
-        너는 여행지 태그 추출기야. 사용자의 문장에서 아래 허용된 태그만 추출해서 JSON으로 출력해.
-        
-        [허용 태그]
-        분위기: 조용한, 감성적인, 웅장한, 야경명소
-        누구와: 부모님과, 아이와함께, 커플, 혼자
-        특징: 바다뷰, 걷기좋은, 사진맛집
-
-        출력 형식: {"keywords": ["태그1", "태그2"]}
-        
-        """
-        
-        # Gemini 모델 설정
-        response1 = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=request.user_message,
-            config = {"system_instruction": system_instruction_1, "response_mime_type": "application/json"}
-        )
-
-        user_tags = json.loads(response1.text).get("keywords", [])
-        user_tags_str = ", ".join(user_tags)
-
-        if not user_tags:
-            return {"status": "success", "ai_reply": "어떤 분위기의 장소를 찾으시는지 조금 더 자세히 말씀해 주시겠어요?"}
-        
-        #코사인 유사도
-        db_tags = [place["tags"] for place in places_db]
-        all_texts = [user_tags_str] +db_tags
-
-        vectorizer = CountVectorizer().fit_transform(all_texts)
-        vectors = vectorizer.toarray()
-        
-        cosine_sim = cosine_similarity([vectors[0]], vectors[1:])[0]
-        top_indices = cosine_sim.argsort()[-3:][::-1]
-        
-        final_places_info = []
-        for i in top_indices:
-            if cosine_sim[i] > 0:
-                final_places_info.append(places_db[i])
-
-        if not final_places_info:
-            return {"status": "success", "ai_reply": "앗, 입력하신 키워드에 딱 맞는 장소를 아직 찾지 못했어요."}
-
-        #답변 깔끔하게
-        places_str = "\n".join([f"- {p['name']} (특징: {p['tags']})" for p in final_places_info])
-        
-        prompt_2 = f"""
-        너는 다정하고 센스 있는 여행 가이드야.
-        사용자가 처음에 이렇게 말했어: "{request.user_message}"
-        
-        우리 시스템이 사용자의 취향에 맞춰 아래 3곳을 찾았어:
-        {places_str}
-        
-        이 장소들을 사용자에게 추천해 줘. 
-        질문의 의도와 장소의 특징(태그)을 자연스럽게 엮어서 설명하되, 
-        가독성을 위해 반드시 아래 형식을 그대로 복사해서 대답해줘. 
-        각 장소 설명이 끝날 때마다 반드시 빈 줄(Enter 두 번)을 넣어서 문단을 확실히 나눠야 해.
-
-        [출력 형식]
-        (반갑고 다정한 인사말 및 공감 1~2문장)
-
-        📍 [장소 이름 1]
-        - (왜 추천하는지 이유 1~2문장)
-
-        📍 [장소 이름 2]
-        - (왜 추천하는지 이유 1~2문장)
-
-        📍 [장소 이름 3]
-        - (왜 추천하는지 이유 1~2문장)
-
-        (기대감을 높이는 마무리 인사 1문장)
-        """
-        
-        response2 = client.models.generate_content(
+        response = client.models.generate_content(
             model="gemini-2.5-flash",
-            contents=prompt_2
+            contents=conversation,
+            config={"system_instruction": system_instruction, "response_mime_type": "application/json"}
         )
-        
-        ai_reply_text = response2.text
-
-        return {"status": "success", "ai_reply": ai_reply_text}
-
+        return json.loads(response.text)
     except Exception as e:
-        print(f"❌ [ERROR] AI 생성 중 에러 발생: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-        # 💡 사용자에게는 깔끔한 메시지를 보여주되, 원인은 로그에 남깁니다.
-        error_msg = "AI가 대답하는 중에 문제가 생겼어요."
+# ==========================================
+# 4. MFS-GA 기반 경로 최적화 (/ai/ga)
+# ==========================================
+@app.post("/ai/ga")
+async def run_mfs_ga(req: GARequest):
+    """
+    유전 알고리즘을 통해 장소 만족도는 최대화하고 거리는 최소화하는 최적 경로를 산출합니다.
+    """
+    places = req.places
+    festivals = req.festivals
+    
+    if len(places) == 0:
+        raise HTTPException(status_code=400, detail="장소가 없습니다.")
+
+    # [Bridge Logic] 축제 인근 장소 보너스 점수 부여 (10km 이내 +50점)
+    place_values = {}
+    nearest_dist = 9999 # 기본값
+    for p in places:
+        bonus = 0
+        min_dist_to_fest = 9999
+        for f in festivals:
+            dist = geodesic((p.latitude, p.longitude), (f.latitude, f.longitude)).km
+            if dist <= 10:
+                bonus = 50
+            if dist < min_dist_to_fest:
+                min_dist_to_fest = dist
         
-        if "429" in str(e):
-             error_msg = "AI 서비스 사용량이 초과되었습니다. 잠시 후 다시 시도해 주세요!"
-        elif "quota" in str(e).lower():
-            error_msg = "API 할당량이 부족합니다."     
+        place_values[p.place_id] = (req.weight_media * p.trend_score) + (req.weight_festival * p.festival_score) + bonus
+        if min_dist_to_fest < nearest_dist:
+            nearest_dist = min_dist_to_fest
 
+    if len(places) == 1:
         return {
-            "status": "error",
-            "message": error_msg
+            "itinerary": [{"order": 1, "place_id": places[0].place_id, "name": places[0].name}],
+            "total_distance": f"{round(nearest_dist, 1)}km" # 축제까지의 거리
         }
+
+    # [GA Engine] 유전 알고리즘 연산부
+    POP_SIZE = 100
+    GENS = 150
+
+    def get_fitness(route: List[Place]) -> float:
+        dist = sum(geodesic((route[i].latitude, route[i].longitude), (route[i+1].latitude, route[i+1].longitude)).km for i in range(len(route)-1))
+        val = sum(place_values[p.place_id] for p in route)
+        # Fitness = Value / Distance 수식 반영
+        return val / (dist if dist > 0 else 0.1)
+
+    population = [random.sample(places, len(places)) for _ in range(POP_SIZE)]
+
+    for _ in range(GENS):
+        population.sort(key=get_fitness, reverse=True)
+        next_gen = population[:10]  # 엘리트 보존
+        
+        while len(next_gen) < POP_SIZE:
+            p1, p2 = random.sample(population[:20], 2)
+            # 순서 교차(Order Crossover) 적용
+            idx = random.randint(1, max(1, len(places)-2))
+            child = p1[:idx] + [p for p in p2 if p not in p1[:idx]]
+            if random.random() < 0.1: # 돌연변이
+                i1, i2 = random.sample(range(len(child)), 2)
+                child[i1], child[i2] = child[i2], child[i1]
+            next_gen.append(child)
+        population = next_gen
+
+    best = max(population, key=get_fitness)
+    total_dist = sum(geodesic((best[i].latitude, best[i].longitude), (best[i+1].latitude, best[i+1].longitude)).km for i in range(len(best)-1))
+
+    return {
+        "itinerary": [{"order": i+1, "place_id": p.place_id, "name": p.name, "lat": p.latitude, "lng": p.longitude} for i, p in enumerate(best)],
+        "total_distance": f"{round(total_dist, 1)}km"
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
