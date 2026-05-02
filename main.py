@@ -115,19 +115,31 @@ async def run_mfs_ga(req: GARequest):
     places = req.places
     festivals = req.festivals
     
-    if len(places) < 2:
-        raise HTTPException(status_code=400, detail="최소 2개의 장소가 필요합니다.")
+    if len(places) == 0:
+        raise HTTPException(status_code=400, detail="장소가 없습니다.")
 
     # [Bridge Logic] 축제 인근 장소 보너스 점수 부여 (10km 이내 +50점)
     place_values = {}
+    nearest_dist = 9999 # 기본값
     for p in places:
         bonus = 0
+        min_dist_to_fest = 9999
         for f in festivals:
-            if geodesic((p.latitude, p.longitude), (f.latitude, f.longitude)).km <= 10:
+            dist = geodesic((p.latitude, p.longitude), (f.latitude, f.longitude)).km
+            if dist <= 10:
                 bonus = 50
-                break
-        # MFS-GA 목적 함수 반영
+            if dist < min_dist_to_fest:
+                min_dist_to_fest = dist
+        
         place_values[p.place_id] = (req.weight_media * p.trend_score) + (req.weight_festival * p.festival_score) + bonus
+        if min_dist_to_fest < nearest_dist:
+            nearest_dist = min_dist_to_fest
+
+    if len(places) == 1:
+        return {
+            "itinerary": [{"order": 1, "place_id": places[0].place_id, "name": places[0].name}],
+            "total_distance": f"{round(nearest_dist, 1)}km" # 축제까지의 거리
+        }
 
     # [GA Engine] 유전 알고리즘 연산부
     POP_SIZE = 100
