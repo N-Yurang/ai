@@ -1,0 +1,21 @@
+# 파이썬 캐시 파일
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 가상환경 폴더 (팀원마다 로컬 환경이 다르므로 절대 올리면 안 됨)
+venv/
+env/
+.venv/
+
+# 환경 변수 (Gemini API 키 등)
+.env
+
+# OS 생성 파일
+.DS_Store
+
+venv/
+.env
+__pycache__/
+*.pyc
+.DS_Store
