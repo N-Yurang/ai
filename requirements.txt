@@ -4,3 +4,4 @@ python-dotenv
 google-genai
 geopy
 pydantic
+psycopg2-binary
