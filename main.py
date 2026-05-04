@@ -140,7 +140,7 @@ async def recommend_optimized_route(req: RecommendRequest):
         region_name = intent.get('region', '그')
         return {
             "status": "chat",
-            "reply": f"앗, 죄송해요! 아직 제가 '{region_name}' 지역의 정보는 공부하지 못했어요 😭 혹시 다른 지역은 어떠신가요?",
+            "reply": f"앗, 죄송해요! 아직 제가 '{region_name}' 지역의 정보는 공부하지 못했어요. 😭 혹시 다른 지역은 어떠신가요?",
             "itinerary": [],
             "total_distance": "0km"
         }
