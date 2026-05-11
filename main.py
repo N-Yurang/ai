@@ -34,7 +34,7 @@ cur.close()
 
 client = genai.Client(api_key=raw_key) if raw_key else None
 
-app = FastAPI(title="TRIPLY One-Stop AI Server")
+app = FastAPI(title="TRIPLY AI Server")
 
 app.add_middleware(
     CORSMiddleware,
