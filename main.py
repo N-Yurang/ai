@@ -19,6 +19,19 @@ load_dotenv()
 raw_key = os.getenv("GOOGLE_API_KEY")
 db_url = os.getenv("SUPABASE_DB_URL")
 
+conn = psycopg2.connect(db_url)
+
+cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+cur.execute("SELECT location, name, description FROM places WHERE description IS NOT NULL")
+all_places = cur.fetchall()
+
+db_summary_text = ""
+for place in all_places:
+    # 예: "- 전남 고흥: 쑥섬 (비밀의 해상 꽃정원...)"
+    db_summary_text += f"- {place['location']}: {place['name']} ({place['description']})\n"
+
+cur.close()
+
 client = genai.Client(api_key=raw_key) if raw_key else None
 
 app = FastAPI(title="TRIPLY One-Stop AI Server")
@@ -61,6 +74,13 @@ async def recommend_optimized_route(req: RecommendRequest):
     system_instruction = """
     너는 여행 큐레이터 'TRIPLY'의 AI 챗봇이야. 유저와 대화하며 취향과 목적지를 파악해.
     
+    🚨 [특별 제약 조건: 서비스 가능 지역 제한] 🚨
+    유저가 지역을 못 정해서 네가 먼저 제안할 때는 반드시 아래 [TRIPLY DB 등록 장소 목록]에 있는 지역과 장소만 조합해서 추천해!
+    절대로 DB에 없는 다른 지역을 언급하지 마.
+
+    [TRIPLY DB 등록 장소 목록]
+    {db_summary_text}
+
     [중요: DB 태그 자동 매핑]
     유저의 말에서 아래 태그를 유추해 'tags' 리스트에 담아줘.
     - 분위기: 감성적인, 고즈넉한, 낭만적인, 신비로운, 웅장한, 조용한, 활기찬
@@ -70,7 +90,7 @@ async def recommend_optimized_route(req: RecommendRequest):
     [응답 규격 (순수 JSON)]
     1. is_ready: 여행 지역(region)이 확정되었는지 여부 (true/false). 지역이 없거나 너무 넓으면(예: 바다) false.
     2. reply: 챗봇 답변. (정보가 부족하면 추출된 취향을 공감해주며 특정 지역을 추천/질문하고, 준비되면 "코스를 짜드릴게요!"라고 해)
-    3. region: 구체적인 지역명 (예: "고흥", "제주". 없으면 null)
+    3. region: 구체적인 지역명 (예: "고흥", "영월", "부여". 없으면 null)
     4. tags: 추출된 매핑 태그 리스트 (예: ["조용한", "바다뷰"])
     5. category_pref: "사람이 적은/숨겨진" 곳을 원하면 "HIDDEN", "핫플/유명한" 곳은 "TREND", 언급 없으면 null
     6. weight_media: 인스타 핫플 선호도 (0.0~1.0)
