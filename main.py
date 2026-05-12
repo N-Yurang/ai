@@ -77,6 +77,7 @@ async def recommend_optimized_route(req: RecommendRequest):
     🚨 [특별 제약 조건: 서비스 가능 지역 제한] 🚨
     유저가 지역을 못 정해서 네가 먼저 제안할 때는 반드시 아래 [TRIPLY DB 등록 장소 목록]에 있는 지역과 장소만 조합해서 추천해!
     절대로 DB에 없는 다른 지역을 언급하지 마.
+    사용자가 바다나 특정 분위기를 언급하더라도, 반드시 현재 서비스 가능 지역 DB 내에서만 제안해. DB에 없는 지역은 절대 먼저 언급하지 마.
 
     [TRIPLY DB 등록 장소 목록]
     {db_summary_text}
@@ -202,7 +203,12 @@ async def recommend_optimized_route(req: RecommendRequest):
             bonus += 30.0
         
         # 스키마에 festival_score가 없으므로, 축제 가중치(w_fest)는 보너스 점수에 직접 반영.
-        val = (w_media * t_score) + (w_fest * bonus)
+        safe_w_media = w_media or 0.0
+        safe_t_score = t_score or 0.0
+        safe_w_fest = w_fest or 0.0
+        safe_bonus = bonus or 0.0
+
+        val = (safe_w_media * safe_t_score) + (safe_w_fest * safe_bonus)
         place_values[p["place_id"]] = val
         
         if dist_to_nearest_fest < nearest_to_fest:
@@ -225,8 +231,8 @@ async def recommend_optimized_route(req: RecommendRequest):
         }
 
     # [MFS-GA Engine] 
-    POP_SIZE = 100
-    GENS = 150
+    POP_SIZE = 200
+    GENS = 250
 
     def get_fitness(route: List[dict]) -> float:
         total_dist = 0
@@ -236,21 +242,20 @@ async def recommend_optimized_route(req: RecommendRequest):
                 (float(route[i+1]["latitude"]), float(route[i+1]["longitude"]))
             ).km
         
-        total_value = sum(place_values[p["place_id"]] for p in route)
-        return total_value / (total_dist if total_dist > 0 else 0.1)
+        return 10000.0 / (total_dist if total_dist > 0 else 0.1)
 
     population = [random.sample(places, len(places)) for _ in range(POP_SIZE)]
 
     for _ in range(GENS):
         population.sort(key=get_fitness, reverse=True)
-        next_gen = population[:10]
+        next_gen = population[:20]
         
         while len(next_gen) < POP_SIZE:
-            p1, p2 = random.sample(population[:20], 2)
+            p1, p2 = random.sample(population[:50], 2)
             idx = random.randint(1, max(1, len(places)-2))
             child = p1[:idx] + [p for p in p2 if p not in p1[:idx]]
             
-            if random.random() < 0.1:
+            if random.random() < 0.2:
                 i1, i2 = random.sample(range(len(child)), 2)
                 child[i1], child[i2] = child[i2], child[i1]
             next_gen.append(child)
