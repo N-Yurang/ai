@@ -32,7 +32,11 @@ for place in all_places:
 
 cur.close()
 
-client = genai.Client(api_key=raw_key) if raw_key else None
+client = genai.Client(
+    vertexai=True, 
+    project="project-4a71ba64-6739-4bbe-b39", 
+    location="asia-northeast3"
+)
 
 app = FastAPI(title="TRIPLY AI Server")
 
