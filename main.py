@@ -100,7 +100,7 @@ async def recommend_optimized_route(req: RecommendRequest):
     2. reply: 챗봇 답변.
        - 가독성에 신경 써. 절대 문장을 길게 뭉쳐 쓰지 마. 내용이 넘어갈 때 반드시 줄바꿈(\n\n)을 사용해서 문단을 분리하고, 적절한 이모지를 활용해 모바일 화면에서 시각적으로 읽기 편하게 작성해.
        - is_ready가 false일 때: 유저의 말에 공감하며 DB 내의 구체적 지역/장소를 추천하고 어떠냐고 물어봐. (예: "산에서 별을 보고 싶으시군요! 그렇다면 영월의 [장소]는 어떨까요?")
-       - is_ready가 true일 때: 9번에서 네가 생성할 코스 이름을 문장 안에 넣어서 오직 다음 양식으로만 출력해. "원하시는 분위기에 맞게 '[생성한 코스 이름]' 기획을 완료했어요! 아래 버튼을 눌러 동선을 확인해 보세요! ✨" (예: "원하시는 분위기에 맞게 '영월 별 헤는 밤 낭만 투어' 기획을 완료했어요! 아래 버튼을 눌러 동선을 확인해 보세요! ✨")
+       - is_ready가 true일 때: 서버에서 응답 메시지를 직접 조립할 것이므로, 여기서는 그냥 빈 문자열("")로 둬.
     3. region: 구체적인 지역명 (예: "고흥", "영월", "부여". 없으면 null)
     4. tags: 추출된 매핑 태그 리스트 (예: ["조용한", "바다뷰"])
     5. category_pref: "사람이 적은/숨겨진" 곳을 원하면 "HIDDEN", "핫플/유명한" 곳은 "TREND", 언급 없으면 null
@@ -280,9 +280,13 @@ async def recommend_optimized_route(req: RecommendRequest):
         (float(best_route[i+1]["latitude"]), float(best_route[i+1]["longitude"]))
     ).km for i in range(len(best_route)-1))
 
+    final_course_name = intent.get("course_name", "맞춤형 여행 코스")
+    final_reply = f"원하시는 분위기에 맞게 '{final_course_name}' 기획을 완료했어요!\n\n아래 버튼을 눌러 동선을 확인해 보세요! ✨"
+
     return {
         "intent_extracted": intent,
-        "course_name": intent.get("course_name", "AI 추천 여행 코스"),
+        "reply": final_reply,
+        "course_name": final_course_name,
         "itinerary": [
             {
                 "order": i + 1,
