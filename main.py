@@ -100,15 +100,15 @@ async def recommend_optimized_route(req: RecommendRequest):
     2. reply: 챗봇 답변. 
        - 가독성에 신경 써. 절대 문장을 길게 뭉쳐 쓰지 마. 내용이 넘어갈 때 반드시 줄바꿈(\n\n)을 사용해서 문단을 분리하고, 적절한 이모지를 활용해 모바일 화면에서 시각적으로 읽기 편하게 작성해.
        - 단어 금지: 대화 중에 "DB", "데이터베이스", "목록" 같은 시스템 단어를 절대 유저에게 말하지 마. 한계를 설명할 때는 "현재 TRIPLY는 [장소]의 여행 코스만 추천해 드릴 수 있어요"처럼 자연스럽게 대답해.
-       - is_ready가 false일 때: 유저의 말에 공감하며 주어진 장소 안에서 구체적 지역/장소를 추천하고 어떠냐고 물어봐. (예: "산에서 별을 보고 싶으시군요! 그렇다면 영월의 [장소]는 어떨까요?")
+       - is_ready가 false일 때: 유저의 말에 공감하며 주어진 장소 안에서 구체적 지역/장소를 추천하고 어떠냐고 물어봐.
        - is_ready가 true일 때: 서버에서 응답 메시지를 직접 조립할 것이므로, 여기서는 그냥 빈 문자열("")로 둬.
-    3. region: 구체적인 지역명. ⚠️매우 중요⚠️ 유저가 제안을 수락해서 is_ready가 true가 될 때, 직전 대화에서 네가 제안했던 지역명(예: 고흥, 영월 등)을 맥락에서 찾아서 반드시 그대로 다시 적어줘. 절대 null로 비우거나 엉뚱한 지역으로 바꾸지 마.
-    4. tags: 추출된 매핑 태그 리스트 (예: ["조용한", "바다뷰"])
+    3. region: 구체적인 지역명. ⚠️매우 중요⚠️ 유저가 긍정의 대답을 해서 is_ready가 true가 될 때, 직전 대화에서 네가 제안했던 지역명을 맥락에서 스스로 찾아내서 정확히 적어줘. 절대 null로 비우거나 엉뚱한 지역으로 맘대로 바꾸지 마.
+    4. tags: 추출된 매핑 태그 리스트
     5. category_pref: "사람이 적은/숨겨진" 곳을 원하면 "HIDDEN", "핫플/유명한" 곳은 "TREND", 언급 없으면 null
     6. weight_media: 인스타 핫플 선호도 (0.0~1.0)
     7. weight_festival: 축제 참여 의지 (0.0~1.0)
     8. start_date / end_date: 날짜 (YYYY-MM-DD, 없으면 null)
-    9. course_name: 코스가 확정되었을 때(is_ready: true), '확정된 지역명(region)'과 유저의 취향을 반영한 매력적인 코스 이름. ⚠️주의⚠️ 프롬프트 예시에 있는 '영월'을 무작정 베껴 쓰지 말고, 반드시 현재 대화에서 확정된 실제 지역명(예: 고흥이면 '고흥 ~ 투어')을 사용해. 확정 전이면 null.
+    9. course_name: 코스가 확정되었을 때(is_ready: true), 3번의 region 값과 대화에서 언급된 테마를 조합해 한눈에 파악할 수 있는 매력적인 코스 이름. ⚠️주의⚠️ 내가 준 예시 단어를 앵무새처럼 베끼지 마. 유저가 바다를 원하면 바다 관련 단어를, 역사 탐방을 원하면 역사 관련 단어를 문맥에 맞게 스스로 창작해. (작성 양식: '[지역명] [유저 취향에 맞는 핵심 키워드] 투어/코스'). 확정 전이면 null.
     """
 
     try:
@@ -228,6 +228,9 @@ async def recommend_optimized_route(req: RecommendRequest):
         if dist_to_nearest_fest < nearest_to_fest:
             nearest_to_fest = dist_to_nearest_fest
 
+    final_course_name = intent.get("course_name", "맞춤형 여행 코스")
+    final_reply = f"원하시는 분위기에 맞게 '{final_course_name}' 기획을 완료했어요!\n\n아래 버튼을 눌러 동선을 확인해 보세요! ✨"
+
     # 장소가 1개일 때 즉시 반환
     if len(places) == 1:
         return {
@@ -282,9 +285,6 @@ async def recommend_optimized_route(req: RecommendRequest):
         (float(best_route[i]["latitude"]), float(best_route[i]["longitude"])), 
         (float(best_route[i+1]["latitude"]), float(best_route[i+1]["longitude"]))
     ).km for i in range(len(best_route)-1))
-
-    final_course_name = intent.get("course_name", "맞춤형 여행 코스")
-    final_reply = f"원하시는 분위기에 맞게 '{final_course_name}' 기획을 완료했어요!\n\n아래 버튼을 눌러 동선을 확인해 보세요! ✨"
 
     return {
         "intent_extracted": intent,
