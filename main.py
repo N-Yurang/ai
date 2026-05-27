@@ -25,7 +25,7 @@ cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 cur.execute("SELECT location, name, description, latitude, longitude FROM places WHERE description IS NOT NULL")
 all_places = cur.fetchall()
 
-cur.execute("SELECT name, latitude, longitude FROM Festivals")
+cur.execute("SELECT festival_id, name, latitude, longitude FROM Festivals")
 all_festivals_db = cur.fetchall()
 
 cur.close()
@@ -39,7 +39,6 @@ for f in all_festivals_db:
     for p in all_places:
         p_lat = float(p["latitude"])
         p_lng = float(p["longitude"])
-        # 축제 반경 15km 이내에 있는 장소 개수 확인
         if geodesic((f_lat, f_lng), (p_lat, p_lng)).km <= 15.0:
             nearby_count += 1
             
@@ -77,10 +76,6 @@ class RecommendRequest(BaseModel):
 # ==========================================
 @app.post("/ai/recommend")
 async def recommend_optimized_route(req: RecommendRequest):
-    """
-    유저의 대화를 분석해 DB에서 직접 장소/축제를 조회하고, 
-    유전 알고리즘(MFS-GA)을 거쳐 최종 경로를 반환합니다.
-    """
     if not client or not db_url:
         raise HTTPException(status_code=500, detail="API 키 또는 DB URL이 설정되지 않았습니다.")
 
@@ -135,7 +130,7 @@ async def recommend_optimized_route(req: RecommendRequest):
        - 단어 금지: 대화 중에 "DB", "데이터베이스", "목록" 같은 시스템 단어를 절대 유저에게 말하지 마. 한계를 설명할 때는 "현재 TRIPLY는 [장소]의 여행 코스만 추천해 드릴 수 있어요"처럼 자연스럽게 대답해.
        - is_ready가 false일 때: 유저의 말에 공감하며 주어진 장소 안에서 구체적 지역/장소를 추천하고 어떠냐고 물어봐.
        - is_ready가 true일 때: 서버에서 응답 메시지를 직접 조립할 것이므로, 여기서는 그냥 빈 문자열("")로 둬.
-    3. region: 구체적인 지역명. 유저가 선택하거나 동의한 지역명을 맥락에서 찾아 정확히 적어줘(예: [지역명 A], [지역명 B] 등). 절대 null로 비우거나 엉뚱한 지역으로 맘대로 바꾸지 마.
+    3. region: 구체적인 지역명. 유저가 선택하거나 동의한 지역명을 찾되, ⚠️매우 중요⚠️ 시/군/구 단위(예: 영등포, 해운대, 진해)가 아니라 반드시 가장 넓은 '광역 지자체 단위(시/도)'로 변환해서 적어줘. (예: 서울, 부산, 강원, 전남, 경남, 충남 등). 확정되지 않았으면 null.
     4. tags: 추출된 매핑 태그 리스트
     5. category_pref: "사람이 적은/숨겨진" 곳을 원하면 "HIDDEN", "핫플/유명한" 곳은 "TREND", 언급 없으면 null
     6. weight_media: 인스타 핫플 선호도 (0.0~1.0)
@@ -170,11 +165,9 @@ async def recommend_optimized_route(req: RecommendRequest):
     festivals = []
     
     try:
-        # DB 연결 오픈
         conn = psycopg2.connect(db_url, sslmode='require')
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        # 1. 축제 조회
         if (intent.get("start_date") and intent.get("end_date")) or intent.get("weight_festival", 0) >= 0.8:
             query = "SELECT festival_id, name, latitude, longitude FROM Festivals"
             params = []
@@ -186,17 +179,36 @@ async def recommend_optimized_route(req: RecommendRequest):
             cur.execute(query, tuple(params))
             festivals = cur.fetchall()
 
-        # 2. 장소 조회 (Places + Media_Trends 조인)
         if intent.get("region"):
             cur.execute("""
                 SELECT p.place_id, p.name, p.latitude, p.longitude, 
-                        p.category, p.tags, --
+                        p.category, p.tags, 
                        COALESCE(m.trend_score, 0) as trend_score
                 FROM Places p
                 LEFT JOIN Media_Trends m ON p.place_id = m.place_id
                 WHERE p.location LIKE %s
             """, (f"%{intent['region']}%",))
             places = cur.fetchall()
+
+            # 지역 검색으로 장소가 나오지 않았을 때의 안전망 (30km 생존 필터링)
+            if not places and festivals and intent.get("weight_festival", 0) >= 0.8:
+                cur.execute("""
+                    SELECT p.place_id, p.name, p.latitude, p.longitude, 
+                            p.category, p.tags, 
+                           COALESCE(m.trend_score, 0) as trend_score
+                    FROM Places p
+                    LEFT JOIN Media_Trends m ON p.place_id = m.place_id
+                """)
+                all_db_places = cur.fetchall()
+                
+                f_lat = float(festivals[0]["latitude"])
+                f_lng = float(festivals[0]["longitude"])
+                
+                for p in all_db_places:
+                    p_lat = float(p["latitude"])
+                    p_lng = float(p["longitude"])
+                    if geodesic((f_lat, f_lng), (p_lat, p_lng)).km <= 30.0:
+                        places.append(p)
 
     except Exception as e:
         print("🚨 [DB 조회 부분 에러] 원인:", str(e))
@@ -225,7 +237,6 @@ async def recommend_optimized_route(req: RecommendRequest):
     w_fest = intent.get("weight_festival", 0.5)
     
     for p in places:
-        # DB에서 가져온 Decimal(위경도)을 float으로 변환
         p_lat = float(p["latitude"])
         p_lng = float(p["longitude"])
         t_score = float(p["trend_score"])
@@ -238,7 +249,7 @@ async def recommend_optimized_route(req: RecommendRequest):
             f_lng = float(f["longitude"])
             d = geodesic((p_lat, p_lng), (f_lat, f_lng)).km
             if d <= 10.0:
-                bonus = 50.0  # 브릿지 로직 보너스 부여
+                bonus = 50.0  
             if d < dist_to_nearest_fest:
                 dist_to_nearest_fest = d
 
@@ -248,11 +259,9 @@ async def recommend_optimized_route(req: RecommendRequest):
                 if user_tag in place_tags_str:
                     bonus += 20.0
         
-        # 2. 카테고리 (숨은 명소 vs 핫플) 매칭 보너스 (+30점)
         if intent.get("category_pref") == p.get("category"):
             bonus += 30.0
         
-        # 스키마에 festival_score가 없으므로, 축제 가중치(w_fest)는 보너스 점수에 직접 반영.
         safe_w_media = w_media or 0.0
         safe_t_score = t_score or 0.0
         safe_w_fest = w_fest or 0.0
@@ -266,7 +275,6 @@ async def recommend_optimized_route(req: RecommendRequest):
 
     places.sort(key=lambda p: place_values[p["place_id"]], reverse=True)
 
-    # 2. 축제 포함 여부 결정 (축제가 검색되었고, 가중치가 0.8 이상일 때)
     final_spots = []
     if festivals and intent.get("weight_festival", 0) >= 0.8:
         top_lat = float(places[0]["latitude"])
@@ -294,7 +302,6 @@ async def recommend_optimized_route(req: RecommendRequest):
     final_course_name = intent.get("course_name", "맞춤형 여행 코스")
     final_reply = f"원하시는 분위기에 맞게 '{final_course_name}' 기획을 완료했어요!\n\n아래 버튼을 눌러 동선을 확인해 보세요! ✨"
 
-    # 장소가 1개일 때 즉시 반환
     if len(places) == 1:
         return {
             "intent_extracted": intent,
@@ -312,7 +319,6 @@ async def recommend_optimized_route(req: RecommendRequest):
             "total_distance": f"{round(nearest_to_fest if festivals else 0, 1)}km"
         }
 
-    # [MFS-GA Engine] 
     POP_SIZE = 100
     GENS = 150
 
@@ -334,10 +340,10 @@ async def recommend_optimized_route(req: RecommendRequest):
         
         while len(next_gen) < POP_SIZE:
             p1, p2 = random.sample(population[:20], 2)
-            idx = random.randint(1, max(1, len(places)-2))
+            idx = random.randint(1, max(1, len(places)-2)) if len(places) > 2 else 1
             child = p1[:idx] + [p for p in p2 if p not in p1[:idx]]
             
-            if random.random() < 0.1:
+            if random.random() < 0.1 and len(child) >= 2:
                 i1, i2 = random.sample(range(len(child)), 2)
                 child[i1], child[i2] = child[i2], child[i1]
             next_gen.append(child)
