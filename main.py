@@ -22,13 +22,30 @@ db_url = os.getenv("SUPABASE_DB_URL")
 conn = psycopg2.connect(db_url)
 
 cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-cur.execute("SELECT location, name, description FROM places WHERE description IS NOT NULL")
+cur.execute("SELECT location, name, description, latitude, longitude FROM places WHERE description IS NOT NULL")
 all_places = cur.fetchall()
 
-cur.execute("SELECT name FROM Festivals") 
+cur.execute("SELECT name, latitude, longitude FROM Festivals")
 all_festivals_db = cur.fetchall()
 
 cur.close()
+
+valid_festivals = []
+for f in all_festivals_db:
+    f_lat = float(f["latitude"])
+    f_lng = float(f["longitude"])
+    
+    nearby_count = 0
+    for p in all_places:
+        p_lat = float(p["latitude"])
+        p_lng = float(p["longitude"])
+        # 축제 반경 15km 이내에 있는 장소 개수 확인
+        if geodesic((f_lat, f_lng), (p_lat, p_lng)).km <= 15.0:
+            nearby_count += 1
+            
+    # 주변 장소가 3개 이상인 축제만 유효한 축제로 판정
+    if nearby_count >= 3:
+        valid_festivals.append(f)
 
 client = genai.Client(
     vertexai=True, 
@@ -77,7 +94,7 @@ async def recommend_optimized_route(req: RecommendRequest):
     random.shuffle(random_places)
     db_summary_text = "\n".join([f"- {p['location']}: {p['name']} ({p['description']})" for p in random_places])
     
-    random_festivals = all_festivals_db.copy()
+    random_festivals = valid_festivals.copy()
     random.shuffle(random_festivals)
     festival_summary_text = "\n".join([f"- {f['name']}" for f in random_festivals])
 
