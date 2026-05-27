@@ -43,8 +43,7 @@ for f in all_festivals_db:
         if geodesic((f_lat, f_lng), (p_lat, p_lng)).km <= 15.0:
             nearby_count += 1
             
-    # 주변 장소가 3개 이상인 축제만 유효한 축제로 판정
-    if nearby_count >= 3:
+    if nearby_count >= 4:
         valid_festivals.append(f)
 
 client = genai.Client(
@@ -264,6 +263,33 @@ async def recommend_optimized_route(req: RecommendRequest):
         
         if dist_to_nearest_fest < nearest_to_fest:
             nearest_to_fest = dist_to_nearest_fest
+
+    places.sort(key=lambda p: place_values[p["place_id"]], reverse=True)
+
+    # 2. 축제 포함 여부 결정 (축제가 검색되었고, 가중치가 0.8 이상일 때)
+    final_spots = []
+    if festivals and intent.get("weight_festival", 0) >= 0.8:
+        top_lat = float(places[0]["latitude"])
+        top_lng = float(places[0]["longitude"])
+        
+        main_festival = min(festivals, key=lambda f: geodesic(
+            (top_lat, top_lng), 
+            (float(f["latitude"]), float(f["longitude"]))
+        ).km)
+        
+        festival_spot = {
+            "place_id": f"fest_{main_festival['festival_id']}",
+            "name": f"🎉 {main_festival['name']}",
+            "latitude": main_festival["latitude"],
+            "longitude": main_festival["longitude"]
+        }
+        
+        final_spots = places[:4]
+        final_spots.append(festival_spot)
+    else:
+        final_spots = places[:5]
+
+    places = final_spots
 
     final_course_name = intent.get("course_name", "맞춤형 여행 코스")
     final_reply = f"원하시는 분위기에 맞게 '{final_course_name}' 기획을 완료했어요!\n\n아래 버튼을 눌러 동선을 확인해 보세요! ✨"
