@@ -136,7 +136,8 @@ async def recommend_optimized_route(req: RecommendRequest):
     6. weight_media: 인스타 핫플 선호도 (0.0~1.0)
     7. weight_festival: 유저가 대화에서 축제를 원하면 무조건 1.0으로 고정해! 그 외에는 0.0~1.0 사이.
     8. start_date / end_date: 날짜 (YYYY-MM-DD, 없으면 null)
-    9. course_name: 코스가 확정되었을 때(is_ready: true), 유저가 선택한 지역(3번의 region 값)과 대화에서 언급된 테마를 조합해 한눈에 파악할 수 있는 매력적인 창작 코스 이름. ⚠️주의⚠️ 내가 준 예시 단어를 앵무새처럼 베끼지 마. 유저가 바다를 원하면 바다 관련 단어를, 역사 탐방을 원하면 역사 관련 단어를 문맥에 맞게 스스로 창작해. (작성 양식: '[지역명] [유저 취향에 맞는 핵심 키워드] 투어/코스'). 확정 전이면 null.
+    9. course_name: 코스가 확정되었을 때(is_ready: true), 유저가 선택한l 지역(3번의 region 값)과 대화에서 언급된 테마를 조합해 한눈에 파악할 수 있는 매력적인 창작 코스 이름. ⚠️주의⚠️ 내가 준 예시 단어를 앵무새처럼 베끼지 마. 유저가 바다를 원하면 바다 관련 단어를, 역사 탐방을 원하면 역사 관련 단어를 문맥에 맞게 스스로 창작해. (작성 양식: '[지역명] [유저 취향에 맞는 핵심 키워드] 투어/코스'). 확정 전이면 nul.
+    10. selected_festival: 코스가 확정되었을 때(is_ready: true), 유저가 대화 중 특정 축제를 명시적으로 선택했거나 네가 제안한 축제에 동의했다면 그 축제의 이름. 축제를 가려는 것이 아니면 null.
     """
 
     try:
@@ -178,6 +179,12 @@ async def recommend_optimized_route(req: RecommendRequest):
                 
             cur.execute(query, tuple(params))
             festivals = cur.fetchall()
+
+            target_festival = intent.get("selected_festival")
+            if target_festival and festivals:
+                matched_festivals = [f for f in festivals if target_festival.replace(" ", "") in f["name"].replace(" ", "")]
+                if matched_festivals:
+                    festivals = matched_festivals
 
         if intent.get("region"):
             cur.execute("""
