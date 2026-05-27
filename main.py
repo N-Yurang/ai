@@ -25,10 +25,8 @@ cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 cur.execute("SELECT location, name, description FROM places WHERE description IS NOT NULL")
 all_places = cur.fetchall()
 
-db_summary_text = ""
-for place in all_places:
-    # 예: "- 전남 고흥: 쑥섬 (비밀의 해상 꽃정원...)"
-    db_summary_text += f"- {place['location']}: {place['name']} ({place['description']})\n"
+cur.execute("SELECT name FROM Festivals") 
+all_festivals_db = cur.fetchall()
 
 cur.close()
 
@@ -75,6 +73,14 @@ async def recommend_optimized_route(req: RecommendRequest):
     # ----------------------------------------
     conversation = "\n".join([f"{msg.role}: {msg.content}" for msg in req.chat_history])
     
+    random_places = all_places.copy()
+    random.shuffle(random_places)
+    db_summary_text = "\n".join([f"- {p['location']}: {p['name']} ({p['description']})" for p in random_places])
+    
+    random_festivals = all_festivals_db.copy()
+    random.shuffle(random_festivals)
+    festival_summary_text = "\n".join([f"- {f['name']}" for f in random_festivals])
+
     system_instruction = f"""
     너는 여행 큐레이터 'TRIPLY'의 AI 챗봇이야. 유저와 대화하며 취향과 목적지를 파악해.
     대화 중에 너 자신이나 서비스를 언급할 때는 절대 '트립리'라고 한글로 적지 말고, 반드시 영문 'TRIPLY'로 표기하거나 아예 주어를 생략해.
@@ -84,8 +90,19 @@ async def recommend_optimized_route(req: RecommendRequest):
     절대로 DB에 없는 다른 지역을 언급하지 마.
     사용자가 바다나 특정 분위기를 언급하더라도, 반드시 현재 서비스 가능 지역 DB 내에서만 제안해. DB에 없는 지역은 절대 먼저 언급하지 마.
 
+    🚨 [장소 추천 특별 규칙 - 매우 중요] 🚨
+    목록 상단에 있는 특정 지역만 편식해서 추천하지 마! 반드시 [TRIPLY DB 등록 장소 목록]을 끝까지 꼼꼼히 읽어.
+    유저의 취향(바다, 역사, 도시, 산, 액티비티 등)에 가장 완벽하게 부합하는 지역을 전국(서울, 부산, 인천, 창원 등 포함)에서 폭넓게 탐색해서 추천해.
+
     [TRIPLY DB 등록 장소 목록]
     {db_summary_text}
+
+    [TRIPLY DB 등록 축제 목록]
+    {festival_summary_text}
+
+    🚨 [축제 추천 관련 특별 규칙] 🚨
+    유저가 "축제"를 가고 싶다고 하면, [TRIPLY DB 등록 장소 목록]에 있는 일반 장소를 억지로 '축제 같은 분위기'라고 둘러대지 마! 
+    반드시 [TRIPLY DB 등록 축제 목록]에 있는 실제 축제 이름을 언급하면서 추천하고, 해당 축제가 열리는 지역을 3번 region 값으로 적어.
 
     [중요: DB 태그 자동 매핑]
     유저의 말에서 아래 태그를 유추해 'tags' 리스트에 담아줘.
@@ -102,13 +119,13 @@ async def recommend_optimized_route(req: RecommendRequest):
        - 단어 금지: 대화 중에 "DB", "데이터베이스", "목록" 같은 시스템 단어를 절대 유저에게 말하지 마. 한계를 설명할 때는 "현재 TRIPLY는 [장소]의 여행 코스만 추천해 드릴 수 있어요"처럼 자연스럽게 대답해.
        - is_ready가 false일 때: 유저의 말에 공감하며 주어진 장소 안에서 구체적 지역/장소를 추천하고 어떠냐고 물어봐.
        - is_ready가 true일 때: 서버에서 응답 메시지를 직접 조립할 것이므로, 여기서는 그냥 빈 문자열("")로 둬.
-    3. region: 구체적인 지역명. ⚠️매우 중요⚠️ 유저가 긍정의 대답을 해서 is_ready가 true가 될 때, 직전 대화에서 네가 제안했던 지역명을 맥락에서 스스로 찾아내서 정확히 적어줘. 절대 null로 비우거나 엉뚱한 지역으로 맘대로 바꾸지 마.
+    3. region: 구체적인 지역명. 유저가 선택하거나 동의한 지역명을 맥락에서 찾아 정확히 적어줘(예: [지역명 A], [지역명 B] 등). 절대 null로 비우거나 엉뚱한 지역으로 맘대로 바꾸지 마.
     4. tags: 추출된 매핑 태그 리스트
     5. category_pref: "사람이 적은/숨겨진" 곳을 원하면 "HIDDEN", "핫플/유명한" 곳은 "TREND", 언급 없으면 null
     6. weight_media: 인스타 핫플 선호도 (0.0~1.0)
-    7. weight_festival: 축제 참여 의지 (0.0~1.0)
+    7. weight_festival: 유저가 대화에서 축제를 원하면 무조건 1.0으로 고정해! 그 외에는 0.0~1.0 사이.
     8. start_date / end_date: 날짜 (YYYY-MM-DD, 없으면 null)
-    9. course_name: 코스가 확정되었을 때(is_ready: true), 3번의 region 값과 대화에서 언급된 테마를 조합해 한눈에 파악할 수 있는 매력적인 코스 이름. ⚠️주의⚠️ 내가 준 예시 단어를 앵무새처럼 베끼지 마. 유저가 바다를 원하면 바다 관련 단어를, 역사 탐방을 원하면 역사 관련 단어를 문맥에 맞게 스스로 창작해. (작성 양식: '[지역명] [유저 취향에 맞는 핵심 키워드] 투어/코스'). 확정 전이면 null.
+    9. course_name: 코스가 확정되었을 때(is_ready: true), 유저가 선택한 지역(3번의 region 값)과 대화에서 언급된 테마를 조합해 한눈에 파악할 수 있는 매력적인 창작 코스 이름. ⚠️주의⚠️ 내가 준 예시 단어를 앵무새처럼 베끼지 마. 유저가 바다를 원하면 바다 관련 단어를, 역사 탐방을 원하면 역사 관련 단어를 문맥에 맞게 스스로 창작해. (작성 양식: '[지역명] [유저 취향에 맞는 핵심 키워드] 투어/코스'). 확정 전이면 null.
     """
 
     try:
@@ -141,13 +158,16 @@ async def recommend_optimized_route(req: RecommendRequest):
         conn = psycopg2.connect(db_url, sslmode='require')
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        # 1. 축제 조회 (날짜가 있을 경우에만)
-        if intent.get("start_date") and intent.get("end_date"):
-            cur.execute("""
-                SELECT festival_id, name, latitude, longitude 
-                FROM Festivals 
-                WHERE start_date <= %s AND end_date >= %s
-            """, (intent["end_date"], intent["start_date"]))
+        # 1. 축제 조회
+        if (intent.get("start_date") and intent.get("end_date")) or intent.get("weight_festival", 0) >= 0.8:
+            query = "SELECT festival_id, name, latitude, longitude FROM Festivals"
+            params = []
+            
+            if intent.get("start_date") and intent.get("end_date"):
+                query += " WHERE start_date <= %s AND end_date >= %s"
+                params.extend([intent["end_date"], intent["start_date"]])
+                
+            cur.execute(query, tuple(params))
             festivals = cur.fetchall()
 
         # 2. 장소 조회 (Places + Media_Trends 조인)
