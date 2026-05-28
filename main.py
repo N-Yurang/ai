@@ -189,17 +189,25 @@ async def recommend_optimized_route(req: RecommendRequest):
                 matched_festivals = [f for f in festivals if target_festival.replace(" ", "") in f["name"].replace(" ", "")]
                 if matched_festivals:
                     festivals = matched_festivals
-
+                    
         if intent.get("region"):
-            cur.execute("""
+            region_keywords = intent["region"].split()
+            
+            where_clauses = " AND ".join(["p.location LIKE %s" for _ in region_keywords])
+            params = [f"%{kw}%" for kw in region_keywords]
+
+            sql_query = f"""
                 SELECT p.place_id, p.name, p.latitude, p.longitude, 
                         p.category, p.tags, 
                        COALESCE(m.trend_score, 0) as trend_score
                 FROM Places p
                 LEFT JOIN Media_Trends m ON p.place_id = m.place_id
-                WHERE p.location LIKE %s
-            """, (f"%{intent['region']}%",))
+                WHERE {where_clauses}
+            """
+            
+            cur.execute(sql_query, tuple(params))
             places = cur.fetchall()
+
 
             # 지역 검색으로 장소가 나오지 않았을 때의 안전망 (30km 생존 필터링)
             if not places and festivals and intent.get("weight_festival", 0) >= 0.8:
