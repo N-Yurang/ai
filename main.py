@@ -191,10 +191,18 @@ async def recommend_optimized_route(req: RecommendRequest):
                     festivals = matched_festivals
                     
         if intent.get("region"):
-            region_keywords = intent["region"].split()
+            raw_keywords = intent["region"].split()
+            region_keywords = []
+            
+            for kw in raw_keywords:
+                if len(kw) > 2 and kw[-1] in ['시', '군', '구']:
+                    region_keywords.append(kw[:-1])
+                else:
+                    region_keywords.append(kw)
             
             where_clauses = " AND ".join(["p.location LIKE %s" for _ in region_keywords])
             params = [f"%{kw}%" for kw in region_keywords]
+
 
             sql_query = f"""
                 SELECT p.place_id, p.name, p.latitude, p.longitude, 
