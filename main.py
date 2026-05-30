@@ -22,7 +22,7 @@ db_url = os.getenv("SUPABASE_DB_URL")
 conn = psycopg2.connect(db_url)
 
 cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-cur.execute("SELECT location, name, description, latitude, longitude FROM places WHERE description IS NOT NULL")
+cur.execute("SELECT location, name, description, latitude, longitude FROM places")
 all_places = cur.fetchall()
 
 cur.execute("SELECT festival_id, name, latitude, longitude FROM Festivals")
