@@ -216,6 +216,19 @@ async def recommend_optimized_route(req: RecommendRequest):
             cur.execute(sql_query, tuple(params))
             places = cur.fetchall()
 
+            if not places and len(region_keywords) > 1:
+                where_clauses_or = " OR ".join(["p.location LIKE %s" for _ in region_keywords])
+                sql_query_or = f"""
+                    SELECT p.place_id, p.name, p.latitude, p.longitude, 
+                            p.category, p.tags, 
+                           COALESCE(m.trend_score, 0) as trend_score
+                    FROM Places p
+                    LEFT JOIN Media_Trends m ON p.place_id = m.place_id
+                    WHERE {where_clauses_or}
+                """
+                cur.execute(sql_query_or, tuple(params))
+                places = cur.fetchall()
+
             if places: # 검색된 장소가 최소 1개라도 있다면
                 center_lat = float(places[0]["latitude"])
                 center_lng = float(places[0]["longitude"])
