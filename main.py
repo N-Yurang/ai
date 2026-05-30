@@ -30,20 +30,7 @@ all_festivals_db = cur.fetchall()
 
 cur.close()
 
-valid_festivals = []
-for f in all_festivals_db:
-    f_lat = float(f["latitude"])
-    f_lng = float(f["longitude"])
-    
-    nearby_count = 0
-    for p in all_places:
-        p_lat = float(p["latitude"])
-        p_lng = float(p["longitude"])
-        if geodesic((f_lat, f_lng), (p_lat, p_lng)).km <= 15.0:
-            nearby_count += 1
-            
-    if nearby_count >= 4:
-        valid_festivals.append(f)
+valid_festivals = all_festivals_db.copy()
 
 client = genai.Client(
     vertexai=True, 
