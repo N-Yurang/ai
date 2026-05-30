@@ -216,6 +216,30 @@ async def recommend_optimized_route(req: RecommendRequest):
             cur.execute(sql_query, tuple(params))
             places = cur.fetchall()
 
+            if places: # 검색된 장소가 최소 1개라도 있다면
+                center_lat = float(places[0]["latitude"])
+                center_lng = float(places[0]["longitude"])
+                
+                # DB의 전체 장소를 가져와서 거리 계산 준비
+                cur.execute("""
+                    SELECT p.place_id, p.name, p.latitude, p.longitude, 
+                            p.category, p.tags, 
+                           COALESCE(m.trend_score, 0) as trend_score
+                    FROM Places p
+                    LEFT JOIN Media_Trends m ON p.place_id = m.place_id
+                """)
+                all_db_places = cur.fetchall()
+                
+                # 중복 방지를 위한 기존 장소 ID 셋업
+                existing_ids = {p["place_id"] for p in places}
+                
+                for p in all_db_places:
+                    if p["place_id"] not in existing_ids:
+                        # 중심점과 다른 장소들의 직선거리(km) 계산
+                        dist = geodesic((center_lat, center_lng), (float(p["latitude"]), float(p["longitude"]))).km
+                        if dist <= 15.0:  # 15km 반경 내에 있으면 행정구역 무시하고 코스 후보에 합류
+                            places.append(p)
+                            existing_ids.add(p["place_id"])
 
             # 지역 검색으로 장소가 나오지 않았을 때의 안전망 (30km 생존 필터링)
             if not places and festivals and intent.get("weight_festival", 0) >= 0.8:
