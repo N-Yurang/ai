@@ -70,6 +70,10 @@ async def recommend_optimized_route(req: RecommendRequest):
     # [STEP 1] Gemini 인텐트 추출
     # ----------------------------------------
     conversation = "\n".join([f"{msg.role}: {msg.content}" for msg in req.chat_history])
+
+    print("\n🚨 [프론트엔드 데이터 수신 확인] 🚨")
+    print(conversation)
+    print("===================================\n")
     
     random_places = all_places.copy()
     random.shuffle(random_places)
@@ -121,7 +125,7 @@ async def recommend_optimized_route(req: RecommendRequest):
        - 단어 금지: 대화 중에 "DB", "데이터베이스", "목록" 같은 시스템 단어를 절대 유저에게 말하지 마. 한계를 설명할 때는 "현재 TRIPLY는 [장소]의 여행 코스만 추천해 드릴 수 있어요"처럼 자연스럽게 대답해.
        - is_ready가 false일 때: 유저의 말에 공감하며 주어진 장소 안에서 구체적 지역/장소를 추천하고 어떠냐고 물어봐.
        - is_ready가 true일 때: 서버에서 응답 메시지를 직접 조립할 것이므로, 여기서는 그냥 빈 문자열("")로 둬.
-    3. region: region: 구체적인 지역명. 유저가 선택하거나 동의한 지역명을 맥락에서 찾아 정확히 적어줘. ⚠️[지역 임의 변경 절대 금지]⚠️ 이전 대화에서 특정 지역으로 합의가 끝났다면, 제공된 목록의 순서나 내용을 핑계로 합의된 지역과 다른 지역명을 절대 출력하지 마. 무조건 합의된 원래 지역명만 출력해. 확정되지 않았으면 null.
+    3. region: 구체적인 지역명. 유저가 선택하거나 동의한 지역명을 맥락에서 찾아 정확히 적어줘. ⚠️[지역 임의 변경 절대 금지]⚠️ 이전 대화에서 특정 지역으로 합의가 끝났다면, 제공된 목록의 순서나 내용을 핑계로 합의된 지역과 다른 지역명을 절대 출력하지 마. 무조건 합의된 원래 지역명만 출력해. 확정되지 않았으면 null.
     4. tags: 추출된 매핑 태그 리스트
     5. category_pref: "사람이 적은/숨겨진" 곳을 원하면 "HIDDEN", "핫플/유명한" 곳은 "TREND", 언급 없으면 null
     6. weight_media: 인스타 핫플 선호도 (0.0~1.0)
