@@ -1,4 +1,4 @@
-# 🤖 TRIPLY AI Core Server (Python)
+# 🤖 TRIPLY AI Server (Python)
 
 본 리포지토리는 대화형 여행 큐레이션 서비스 **TRIPLY**의 핵심 인지 및 경로 최적화 연산을 담당하는 파이썬 AI 백엔드 서버입니다. 
 
