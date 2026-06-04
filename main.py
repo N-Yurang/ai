@@ -159,10 +159,12 @@ async def recommend_optimized_route(req: RecommendRequest):
             "itinerary": [],
             "total_distance": "0km"
         }
-
+    
     if intent.get("is_ready"):
+        # JSON 결과물 따위 안 믿음. 가장 최근 대화(AI 제안 + 유저 수락) 2개만 텍스트로 합치기
         recent_chat = "".join([msg.content for msg in req.chat_history[-2:]]).replace(" ", "")
         
+        # 유저랑 방금까지 떠들던 축제가 있는지 무식하게 전체 DB랑 대조해서 찾아냄
         for f in valid_festivals:
             if f["name"].replace(" ", "") in recent_chat:
                 intent["selected_festival"] = f["name"]
@@ -180,24 +182,19 @@ async def recommend_optimized_route(req: RecommendRequest):
         conn = psycopg2.connect(db_url, sslmode='require')
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        if (intent.get("start_date") and intent.get("end_date")) or intent.get("weight_festival", 0) >= 0.8 or intent.get("selected_festival"):
+        target_festival = intent.get("selected_festival")
+        
+        if target_festival:
+            matched_festivals = [f for f in valid_festivals if target_festival.replace(" ", "") in f["name"].replace(" ", "") or f["name"].replace(" ", "") in target_festival.replace(" ", "")]
+            festivals = matched_festivals if matched_festivals else []
+        elif (intent.get("start_date") and intent.get("end_date")) or intent.get("weight_festival", 0) >= 0.8:
             query = "SELECT festival_id, name, latitude, longitude FROM Festivals"
             params = []
-            
             if intent.get("start_date") and intent.get("end_date"):
                 query += " WHERE start_date <= %s AND end_date >= %s"
                 params.extend([intent["end_date"], intent["start_date"]])
-                
             cur.execute(query, tuple(params))
             festivals = cur.fetchall()
-
-            target_festival = intent.get("selected_festival")
-            if target_festival and festivals:
-                matched_festivals = [f for f in festivals if target_festival.replace(" ", "") in f["name"].replace(" ", "") or f["name"].replace(" ", "") in target_festival.replace(" ", "")]
-                if matched_festivals:
-                    festivals = matched_festivals
-                else:
-                    festivals = []
                     
         if intent.get("region"):
             raw_keywords = intent["region"].split()
