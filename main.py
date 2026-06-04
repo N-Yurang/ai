@@ -305,6 +305,8 @@ async def recommend_optimized_route(req: RecommendRequest):
     nearest_to_fest = 999.9
     w_media = intent.get("weight_media", 0.5)
     w_fest = intent.get("weight_festival", 0.5)
+
+    recent_text = "".join([msg.content for msg in req.chat_history[-2:]]).replace(" ", "")
     
     for p in places:
         p_lat = float(p["latitude"])
@@ -338,6 +340,11 @@ async def recommend_optimized_route(req: RecommendRequest):
         safe_bonus = bonus or 0.0
 
         val = (safe_w_media * safe_t_score) + (safe_w_fest * safe_bonus)
+
+        if p["name"].replace(" ", "") in recent_text:
+            val += 9999.0
+            print(f"🔥 [장소 멱살잡기] '{p['name']}' 발견! 점수 밀어내기 방지 완료.")
+            
         place_values[p["place_id"]] = val
         
         if dist_to_nearest_fest < nearest_to_fest:
