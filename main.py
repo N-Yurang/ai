@@ -253,7 +253,7 @@ async def recommend_optimized_route(req: RecommendRequest):
                             places.append(p)
                             existing_ids.add(p["place_id"])
 
-            # 지역 검색으로 장소가 나오지 않았을 때의 안전망 (30km 생존 필터링)
+            # 지역 검색으로 장소가 나오지 않았을 때의 안전망 (60km 생존 필터링)
             if not places and festivals and (intent.get("weight_festival", 0) >= 0.8 or intent.get("selected_festival")):
                 cur.execute("""
                     SELECT p.place_id, p.name, p.latitude, p.longitude, 
@@ -270,7 +270,7 @@ async def recommend_optimized_route(req: RecommendRequest):
                 for p in all_db_places:
                     p_lat = float(p["latitude"])
                     p_lng = float(p["longitude"])
-                    if geodesic((f_lat, f_lng), (p_lat, p_lng)).km <= 30.0:
+                    if geodesic((f_lat, f_lng), (p_lat, p_lng)).km <= 60.0:
                         places.append(p)
 
     except Exception as e:
