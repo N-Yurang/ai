@@ -165,7 +165,6 @@ async def recommend_optimized_route(req: RecommendRequest):
         c_reply = intent.get("reply") or ""
         check_text = (c_name + c_reply).replace(" ", "")
         
-        # AI가 뒤에서 selected_festival을 빼먹었더라도, 코스명에 축제 이름이 있으면 파이썬이 강제로 주입!
         for f in valid_festivals:
             if f["name"].replace(" ", "") in check_text:
                 intent["selected_festival"] = f["name"]
