@@ -129,7 +129,7 @@ async def recommend_optimized_route(req: RecommendRequest):
     4. tags: 추출된 매핑 태그 리스트
     5. category_pref: "사람이 적은/숨겨진" 곳을 원하면 "HIDDEN", "핫플/유명한" 곳은 "TREND", 언급 없으면 null
     6. weight_media: 인스타 핫플 선호도 (0.0~1.0)
-    7. weight_festival: 유저가 대화에서 축제를 원하면 무조건 1.0으로 고정해! 그 외에는 0.0~1.0 사이.
+    7. weight_festival: 유저가 대화에서 축제를 가기로 합의했거나, 10번 selected_festival 값이 존재한다면 무조건 1.0으로 강제 고정해. (마지막 메시지에 '축제'라는 단어가 없더라도 절대 점수를 내리지 마)
     8. start_date / end_date: 날짜 (YYYY-MM-DD, 없으면 null)
     9. course_name: 코스가 확정되었을 때(is_ready: true), 대화의 맥락을 살려 한눈에 파악할 수 있는 매력적인 창작 코스 이름. 
        - ⚠️매우 중요(네이밍 조건 로직)⚠️: 유저가 긍정한 대상의 성격에 따라 이름의 시작 단어를 다르게 설정해.
@@ -170,7 +170,7 @@ async def recommend_optimized_route(req: RecommendRequest):
         conn = psycopg2.connect(db_url, sslmode='require')
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        if (intent.get("start_date") and intent.get("end_date")) or intent.get("weight_festival", 0) >= 0.8:
+        if (intent.get("start_date") and intent.get("end_date")) or intent.get("weight_festival", 0) >= 0.8 or intent.get("selected_festival"):
             query = "SELECT festival_id, name, latitude, longitude FROM Festivals"
             params = []
             
@@ -183,7 +183,7 @@ async def recommend_optimized_route(req: RecommendRequest):
 
             target_festival = intent.get("selected_festival")
             if target_festival and festivals:
-                matched_festivals = [f for f in festivals if target_festival.replace(" ", "") in f["name"].replace(" ", "")]
+                matched_festivals = [f for f in festivals if target_festival.replace(" ", "") in f["name"].replace(" ", "") or f["name"].replace(" ", "") in target_festival.replace(" ", "")]
                 if matched_festivals:
                     festivals = matched_festivals
                 else:
@@ -254,7 +254,7 @@ async def recommend_optimized_route(req: RecommendRequest):
                             existing_ids.add(p["place_id"])
 
             # 지역 검색으로 장소가 나오지 않았을 때의 안전망 (30km 생존 필터링)
-            if not places and festivals and intent.get("weight_festival", 0) >= 0.8:
+            if not places and festivals and (intent.get("weight_festival", 0) >= 0.8 or intent.get("selected_festival")):
                 cur.execute("""
                     SELECT p.place_id, p.name, p.latitude, p.longitude, 
                             p.category, p.tags, 
@@ -339,7 +339,7 @@ async def recommend_optimized_route(req: RecommendRequest):
     places.sort(key=lambda p: place_values[p["place_id"]], reverse=True)
 
     final_spots = []
-    if festivals and intent.get("weight_festival", 0) >= 0.8:
+    if festivals and (intent.get("weight_festival", 0) >= 0.8 or intent.get("selected_festival")):
         top_lat = float(places[0]["latitude"])
         top_lng = float(places[0]["longitude"])
         
