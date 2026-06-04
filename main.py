@@ -161,15 +161,13 @@ async def recommend_optimized_route(req: RecommendRequest):
         }
 
     if intent.get("is_ready"):
-        c_name = intent.get("course_name") or ""
-        c_reply = intent.get("reply") or ""
-        check_text = (c_name + c_reply).replace(" ", "")
+        recent_chat = "".join([msg.content for msg in req.chat_history[-2:]]).replace(" ", "")
         
         for f in valid_festivals:
-            if f["name"].replace(" ", "") in check_text:
+            if f["name"].replace(" ", "") in recent_chat:
                 intent["selected_festival"] = f["name"]
-                intent["weight_festival"] = 1.0  # 축제 가중치도 MAX로 펌핑
-                print(f"🔥 [AI 기억 복구 성공] 코스명에서 '{f['name']}' 발견! 강제 편입 완료.")
+                intent["weight_festival"] = 1.0  # 가중치 MAX 강제 고정
+                print(f"🔥 [진짜 최종 멱살잡기] 대화 내역에서 '{f['name']}' 발견! AI 무시하고 강제 편입 완료.")
                 break
 
     # ----------------------------------------
