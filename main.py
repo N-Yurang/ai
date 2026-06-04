@@ -160,6 +160,19 @@ async def recommend_optimized_route(req: RecommendRequest):
             "total_distance": "0km"
         }
 
+    if intent.get("is_ready"):
+        c_name = intent.get("course_name") or ""
+        c_reply = intent.get("reply") or ""
+        check_text = (c_name + c_reply).replace(" ", "")
+        
+        # AI가 뒤에서 selected_festival을 빼먹었더라도, 코스명에 축제 이름이 있으면 파이썬이 강제로 주입!
+        for f in valid_festivals:
+            if f["name"].replace(" ", "") in check_text:
+                intent["selected_festival"] = f["name"]
+                intent["weight_festival"] = 1.0  # 축제 가중치도 MAX로 펌핑
+                print(f"🔥 [AI 기억 복구 성공] 코스명에서 '{f['name']}' 발견! 강제 편입 완료.")
+                break
+
     # ----------------------------------------
     # [STEP 2] Supabase DB 직접 조회 (SQL)
     # ----------------------------------------
